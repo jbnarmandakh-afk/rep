@@ -1,0 +1,31 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1. Setup sample time series data (7 days of readings)
+data = {
+    'day': pd.date_range(start='2024-01-01', periods=7),
+    'sbp': [120, 135, 128, 142, 138, 145, 140] # Systolic Blood Pressure
+}
+df = pd.DataFrame(data)
+
+# 2. Define risk calculation parameters
+SBP_BASELINE = 115
+BETA = np.log(2) / 20  # Approx 0.0347 (Doubles every 20 mmHg)
+
+# 3. Calculate Relative Risk for each reading
+df['relative_risk'] = np.exp(BETA * (df['sbp'] - SBP_BASELINE))
+
+# 4. Calculate 3-day rolling average to see risk trends
+df['rolling_risk'] = df['relative_risk'].rolling(window=3).mean()
+
+print(df[['day', 'sbp', 'relative_risk', 'rolling_risk']])
+
+# Visualize the trend
+plt.figure(figsize=(10, 5))
+plt.plot(df['day'], df['relative_risk'], marker='o', label='Daily Relative Risk')
+plt.axhline(y=1.0, color='r', linestyle='--', label='Baseline Risk (115 mmHg)')
+plt.title('Stroke Relative Risk Trend Over Time')
+plt.ylabel('Relative Risk Factor')
+plt.legend()
+plt.show()
