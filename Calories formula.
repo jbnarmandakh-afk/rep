@@ -1,0 +1,17 @@
+def calorie_balance_advanced(calories_eaten, maintenance_calories):
+    difference = calories_eaten - maintenance_calories
+    
+    weekly_change_kcal = difference * 7
+    weight_change_kg = weekly_change_kcal / 7700  # 7700 kcal ≈ 1 kg fat
+
+    if difference > 0:
+        status = "Surplus"
+    elif difference < 0:
+        status = "Deficit"
+    else:
+        status = "Maintenance"
+
+    return {
+        "status": status,
+        "daily_difference_kcal": difference,
+        "weekly_weight_change_kg": round(weight_change_kg, 2)
