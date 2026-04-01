@@ -1,0 +1,45 @@
+Table,Column,Data Type,Constraints,Nullable,Default,Description,Example
+Users,user_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Unique user identifier,1
+Users,name,VARCHAR(100),,YES,,Full name of user,John Doe
+Users,email,VARCHAR(100),UNIQUE,NO,,User email address,john@email.com
+Users,password_hash,VARCHAR(255),,NO,,Encrypted password hash,$2b$10$abc...
+Users,date_of_birth,DATE,,YES,,Date of birth,2000-05-21
+Users,gender,VARCHAR(10),,YES,,Gender,Male
+Users,height_cm,FLOAT,,YES,,Height in centimeters,175.5
+Users,weight_kg,FLOAT,,YES,,Weight in kilograms,70.2
+Users,created_at,TIMESTAMP,,NO,CURRENT_TIMESTAMP,Account creation timestamp,2026-04-01 10:00:00
+
+BloodPressureLogs,bp_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Blood pressure record ID,101
+BloodPressureLogs,user_id,INT,FOREIGN KEY,NO,,Reference to Users table,1
+BloodPressureLogs,systolic,INT,,NO,,Systolic pressure (upper),120
+BloodPressureLogs,diastolic,INT,,NO,,Diastolic pressure (lower),80
+BloodPressureLogs,heart_rate,INT,,YES,,Heart rate (bpm),72
+BloodPressureLogs,recorded_at,TIMESTAMP,,NO,,Date and time recorded,2026-04-01 09:00:00
+BloodPressureLogs,notes,TEXT,,YES,,Additional notes,Post workout reading
+
+Workouts,workout_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Workout session ID,201
+Workouts,user_id,INT,FOREIGN KEY,NO,,Reference to Users table,1
+Workouts,workout_type,VARCHAR(50),,NO,,Type of workout,Cardio
+Workouts,duration_min,INT,,NO,,Duration in minutes,45
+Workouts,calories_burned,FLOAT,,YES,,Calories burned,350.5
+Workouts,recorded_at,TIMESTAMP,,NO,,Workout timestamp,2026-04-01 07:00:00
+
+ExerciseLogs,exercise_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Exercise record ID,301
+ExerciseLogs,workout_id,INT,FOREIGN KEY,NO,,Reference to Workouts table,201
+ExerciseLogs,exercise_name,VARCHAR(100),,NO,,Exercise name,Bench Press
+ExerciseLogs,sets,INT,,YES,,Number of sets,4
+ExerciseLogs,reps,INT,,YES,,Number of reps,10
+ExerciseLogs,weight_kg,FLOAT,,YES,,Weight used,60.0
+
+SleepLogs,sleep_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Sleep record ID,401
+SleepLogs,user_id,INT,FOREIGN KEY,NO,,Reference to Users table,1
+SleepLogs,sleep_start,TIMESTAMP,,NO,,Sleep start time,2026-03-31 23:00:00
+SleepLogs,sleep_end,TIMESTAMP,,NO,,Sleep end time,2026-04-01 07:00:00
+SleepLogs,sleep_quality,INT,,YES,,Sleep quality (1-10),8
+SleepLogs,notes,TEXT,,YES,,Additional notes,Felt rested
+
+HealthMetrics,metric_id,INT,PRIMARY KEY AUTO_INCREMENT,NO,,Metric record ID,501
+HealthMetrics,user_id,INT,FOREIGN KEY,NO,,Reference to Users table,1
+HealthMetrics,metric_type,VARCHAR(50),,NO,,Type of metric,Weight
+HealthMetrics,value,FLOAT,,NO,,Metric value,70.5
+HealthMetrics,recorded_at,TIMESTAMP,,NO,,Recorded timestamp,2026-04-01 08:00:00
