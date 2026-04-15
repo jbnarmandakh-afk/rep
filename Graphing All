@@ -1,0 +1,1026 @@
+"""
+Health Tracker - Graphing / Visualization
+==========================================
+Matplotlib-based visualization functions for all health metrics.
+Generates charts for blood pressure, sleep, workouts, and mental health (dopamine vs cortisol).
+"""
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+from datetime import datetime, date, timedelta
+from typing import List, Optional, Tuple
+import os
+
+from .models import (
+    BloodPressureLog, SleepLog, Workout, NutritionLog,
+    DailyWellnessEntry, WellnessScores, BPCategory
+)
+from .calculations import (
+    analyze_bp_reading, categorize_blood_pressure,
+    analyze_sleep_log, calculate_wellness_scores,
+    calculate_daily_wellness
+)
+
+# Set style
+plt.style.use('dark_background')
+
+# Color palette
+COLORS = {
+    'primary': '#4A90D9',      # Blue
+    'accent': '#2DD4A8',       # Teal/Green
+    'warning': '#F5A623',      # Orange/Yellow
+    'danger': '#E74C3C',       # Red
+    'success': '#27AE60',      # Green
+    'muted': '#7F8C8D',        # Gray
+    'background': '#1A1A2E',   # Dark background
+    'card': '#252540',         # Card background
+    'text': '#ECF0F1',         # Light text
+    'dopamine': '#27AE60',     # Green for dopamine
+    'cortisol': '#E74C3C',     # Red for cortisol
+    'systolic': '#E74C3C',     # Red for systolic
+    'diastolic': '#3498DB',    # Blue for diastolic
+    'heart_rate': '#9B59B6',   # Purple for heart rate
+}
+
+
+def setup_dark_theme():
+    """Configure matplotlib for dark theme."""
+    plt.rcParams.update({
+        'figure.facecolor': COLORS['background'],
+        'axes.facecolor': COLORS['card'],
+        'axes.edgecolor': COLORS['muted'],
+        'axes.labelcolor': COLORS['text'],
+        'text.color': COLORS['text'],
+        'xtick.color': COLORS['muted'],
+        'ytick.color': COLORS['muted'],
+        'grid.color': COLORS['muted'],
+        'grid.alpha': 0.3,
+        'legend.facecolor': COLORS['card'],
+        'legend.edgecolor': COLORS['muted'],
+        'font.size': 10,
+        'axes.titlesize': 12,
+        'axes.labelsize': 10,
+    })
+
+
+setup_dark_theme()
+
+
+# ============================================================================
+# BLOOD PRESSURE CHARTS
+# ============================================================================
+
+def plot_blood_pressure_trend(
+    logs: List[BloodPressureLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """
+    Plot blood pressure trend over time with systolic/diastolic lines.
+    Includes AHA reference zones.
+    """
+    if not logs:
+        raise ValueError("No blood pressure logs provided")
+    
+    sorted_logs = sorted(logs, key=lambda x: x.recorded_at)
+    
+    dates = [log.recorded_at for log in sorted_logs]
+    systolic = [log.systolic for log in sorted_logs]
+    diastolic = [log.diastolic for log in sorted_logs]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Add reference zones
+    ax.axhspan(0, 80, alpha=0.1, color=COLORS['success'], label='Normal Diastolic Zone')
+    ax.axhspan(80, 90, alpha=0.1, color=COLORS['warning'])
+    ax.axhspan(90, 120, alpha=0.1, color=COLORS['danger'])
+    
+    ax.axhline(y=120, color=COLORS['muted'], linestyle='--', alpha=0.5, linewidth=1)
+    ax.axhline(y=80, color=COLORS['muted'], linestyle='--', alpha=0.5, linewidth=1)
+    ax.axhline(y=140, color=COLORS['danger'], linestyle='--', alpha=0.5, linewidth=1)
+    
+    # Plot lines
+    ax.plot(dates, systolic, color=COLORS['systolic'], linewidth=2, marker='o', 
+            markersize=6, label=f'Systolic (avg: {sum(systolic)/len(systolic):.0f})')
+    ax.plot(dates, diastolic, color=COLORS['diastolic'], linewidth=2, marker='s', 
+            markersize=5, label=f'Diastolic (avg: {sum(diastolic)/len(diastolic):.0f})')
+    
+    # Fill between
+    ax.fill_between(dates, systolic, diastolic, alpha=0.2, color=COLORS['primary'])
+    
+    # Annotations
+    ax.annotate('Normal <120', xy=(dates[-1], 120), xytext=(5, 0), 
+                textcoords='offset points', fontsize=8, color=COLORS['muted'])
+    ax.annotate('Normal <80', xy=(dates[-1], 80), xytext=(5, 0), 
+                textcoords='offset points', fontsize=8, color=COLORS['muted'])
+    ax.annotate('High ≥140', xy=(dates[-1], 140), xytext=(5, 0), 
+                textcoords='offset points', fontsize=8, color=COLORS['danger'])
+    
+    ax.set_xlabel('Date')
+    ax.set_ylabel('mmHg')
+    ax.set_title('Blood Pressure Trend')
+    ax.legend(loc='upper left')
+    ax.grid(True, alpha=0.3)
+    
+    # Format x-axis dates
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates)//7)))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_bp_distribution(
+    logs: List[BloodPressureLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot distribution of BP readings by category."""
+    if not logs:
+        raise ValueError("No blood pressure logs provided")
+    
+    # Categorize readings
+    categories = {}
+    for log in logs:
+        cat = categorize_blood_pressure(log.systolic, log.diastolic)
+        categories[cat.value] = categories.get(cat.value, 0) + 1
+    
+    # Define order and colors
+    order = [
+        BPCategory.NORMAL.value,
+        BPCategory.ELEVATED.value,
+        BPCategory.HYPERTENSION_STAGE_1.value,
+        BPCategory.HYPERTENSION_STAGE_2.value,
+        BPCategory.HYPERTENSIVE_CRISIS.value,
+        BPCategory.LOW.value,
+    ]
+    cat_colors = {
+        BPCategory.NORMAL.value: COLORS['success'],
+        BPCategory.ELEVATED.value: COLORS['warning'],
+        BPCategory.HYPERTENSION_STAGE_1.value: '#F39C12',
+        BPCategory.HYPERTENSION_STAGE_2.value: COLORS['danger'],
+        BPCategory.HYPERTENSIVE_CRISIS.value: '#8E44AD',
+        BPCategory.LOW.value: COLORS['primary'],
+    }
+    
+    labels = [cat for cat in order if cat in categories]
+    values = [categories[cat] for cat in labels]
+    colors = [cat_colors[cat] for cat in labels]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    bars = ax.bar(labels, values, color=colors, edgecolor='white', linewidth=1)
+    
+    # Add value labels on bars
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                str(val), ha='center', va='bottom', fontsize=10, color=COLORS['text'])
+    
+    ax.set_xlabel('Category')
+    ax.set_ylabel('Number of Readings')
+    ax.set_title('Blood Pressure Readings by Category')
+    plt.xticks(rotation=30, ha='right')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_bp_with_heart_rate(
+    logs: List[BloodPressureLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot BP with heart rate on secondary axis."""
+    if not logs:
+        raise ValueError("No blood pressure logs provided")
+    
+    sorted_logs = sorted(logs, key=lambda x: x.recorded_at)
+    logs_with_hr = [log for log in sorted_logs if log.heart_rate is not None]
+    
+    if not logs_with_hr:
+        return plot_blood_pressure_trend(logs, save_path, show)
+    
+    dates = [log.recorded_at for log in logs_with_hr]
+    systolic = [log.systolic for log in logs_with_hr]
+    diastolic = [log.diastolic for log in logs_with_hr]
+    heart_rates = [log.heart_rate for log in logs_with_hr]
+    
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    
+    # Blood pressure on primary axis
+    ax1.plot(dates, systolic, color=COLORS['systolic'], linewidth=2, marker='o', 
+             markersize=6, label='Systolic')
+    ax1.plot(dates, diastolic, color=COLORS['diastolic'], linewidth=2, marker='s', 
+             markersize=5, label='Diastolic')
+    ax1.fill_between(dates, systolic, diastolic, alpha=0.2, color=COLORS['primary'])
+    
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Blood Pressure (mmHg)', color=COLORS['text'])
+    ax1.tick_params(axis='y', labelcolor=COLORS['text'])
+    
+    # Heart rate on secondary axis
+    ax2 = ax1.twinx()
+    ax2.plot(dates, heart_rates, color=COLORS['heart_rate'], linewidth=2, 
+             marker='^', markersize=5, linestyle='--', label='Heart Rate')
+    ax2.set_ylabel('Heart Rate (BPM)', color=COLORS['heart_rate'])
+    ax2.tick_params(axis='y', labelcolor=COLORS['heart_rate'])
+    
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    ax1.set_title('Blood Pressure & Heart Rate Trend')
+    ax1.grid(True, alpha=0.3)
+    
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+# ============================================================================
+# SLEEP CHARTS
+# ============================================================================
+
+def plot_sleep_duration(
+    logs: List[SleepLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot sleep duration over time with optimal range highlight."""
+    if not logs:
+        raise ValueError("No sleep logs provided")
+    
+    sorted_logs = sorted(logs, key=lambda x: x.sleep_end)
+    analyses = [analyze_sleep_log(log) for log in sorted_logs]
+    
+    dates = [a.sleep_end.date() for a in analyses]
+    durations = [a.duration_hours for a in analyses]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Optimal range background
+    ax.axhspan(7, 9, alpha=0.2, color=COLORS['success'], label='Optimal (7-9h)')
+    ax.axhspan(6, 7, alpha=0.1, color=COLORS['warning'])
+    ax.axhspan(0, 6, alpha=0.1, color=COLORS['danger'])
+    
+    # Bar chart with color coding
+    colors = []
+    for d in durations:
+        if 7 <= d <= 9:
+            colors.append(COLORS['success'])
+        elif 6 <= d < 7:
+            colors.append(COLORS['warning'])
+        else:
+            colors.append(COLORS['danger'])
+    
+    bars = ax.bar(dates, durations, color=colors, edgecolor='white', linewidth=0.5, width=0.8)
+    
+    # Average line
+    avg_duration = sum(durations) / len(durations)
+    ax.axhline(y=avg_duration, color=COLORS['accent'], linestyle='-', 
+               linewidth=2, label=f'Average: {avg_duration:.1f}h')
+    
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Hours')
+    ax.set_title('Sleep Duration')
+    ax.legend(loc='upper right')
+    ax.set_ylim(0, max(durations) + 2)
+    
+    # Format x-axis
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_sleep_quality(
+    logs: List[SleepLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot sleep quality scores over time."""
+    if not logs:
+        raise ValueError("No sleep logs provided")
+    
+    sorted_logs = sorted(logs, key=lambda x: x.sleep_end)
+    logs_with_quality = [log for log in sorted_logs if log.sleep_quality is not None]
+    
+    if not logs_with_quality:
+        raise ValueError("No sleep logs with quality data")
+    
+    dates = [log.sleep_end.date() for log in logs_with_quality]
+    qualities = [log.sleep_quality for log in logs_with_quality]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Quality zones
+    ax.axhspan(8, 10, alpha=0.2, color=COLORS['success'], label='Excellent (8-10)')
+    ax.axhspan(6, 8, alpha=0.15, color=COLORS['accent'], label='Good (6-8)')
+    ax.axhspan(4, 6, alpha=0.1, color=COLORS['warning'], label='Fair (4-6)')
+    ax.axhspan(0, 4, alpha=0.1, color=COLORS['danger'], label='Poor (0-4)')
+    
+    # Line with markers
+    ax.plot(dates, qualities, color=COLORS['primary'], linewidth=2, marker='o', 
+            markersize=8, label=f'Quality (avg: {sum(qualities)/len(qualities):.1f})')
+    
+    # Fill under the line
+    ax.fill_between(dates, qualities, alpha=0.3, color=COLORS['primary'])
+    
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Quality Score (1-10)')
+    ax.set_title('Sleep Quality Trend')
+    ax.set_ylim(0, 10.5)
+    ax.legend(loc='lower left')
+    ax.grid(True, alpha=0.3)
+    
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_sleep_combined(
+    logs: List[SleepLog],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Combined view: duration bars with quality line overlay."""
+    if not logs:
+        raise ValueError("No sleep logs provided")
+    
+    sorted_logs = sorted(logs, key=lambda x: x.sleep_end)
+    analyses = [analyze_sleep_log(log) for log in sorted_logs]
+    
+    dates = [a.sleep_end.date() for a in analyses]
+    durations = [a.duration_hours for a in analyses]
+    qualities = [a.sleep_quality if a.sleep_quality else 5 for a in analyses]
+    
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    
+    # Duration bars
+    colors = [COLORS['success'] if 7 <= d <= 9 else COLORS['warning'] if d >= 6 else COLORS['danger'] 
+              for d in durations]
+    ax1.bar(dates, durations, color=colors, alpha=0.7, label='Duration', width=0.8)
+    ax1.set_ylabel('Duration (hours)', color=COLORS['text'])
+    ax1.set_ylim(0, max(durations) + 2)
+    
+    # Quality line on secondary axis
+    ax2 = ax1.twinx()
+    ax2.plot(dates, qualities, color=COLORS['accent'], linewidth=3, marker='o', 
+             markersize=8, label='Quality')
+    ax2.set_ylabel('Quality (1-10)', color=COLORS['accent'])
+    ax2.set_ylim(0, 10.5)
+    ax2.tick_params(axis='y', labelcolor=COLORS['accent'])
+    
+    ax1.set_xlabel('Date')
+    ax1.set_title('Sleep Duration & Quality')
+    
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+# ============================================================================
+# WORKOUT CHARTS
+# ============================================================================
+
+def plot_workout_frequency(
+    workouts: List[Workout],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot workout frequency by type."""
+    if not workouts:
+        raise ValueError("No workouts provided")
+    
+    # Count by type
+    type_counts = {}
+    for w in workouts:
+        type_counts[w.workout_type.value] = type_counts.get(w.workout_type.value, 0) + 1
+    
+    types = list(type_counts.keys())
+    counts = list(type_counts.values())
+    
+    # Color palette for workout types
+    colors = plt.cm.viridis([i/len(types) for i in range(len(types))])
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    bars = ax.bar(types, counts, color=colors, edgecolor='white', linewidth=1)
+    
+    for bar, count in zip(bars, counts):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                str(count), ha='center', va='bottom', fontsize=11, fontweight='bold')
+    
+    ax.set_xlabel('Workout Type')
+    ax.set_ylabel('Number of Sessions')
+    ax.set_title('Workouts by Type')
+    plt.xticks(rotation=30, ha='right')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_workout_duration_calories(
+    workouts: List[Workout],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot workout duration and calories over time."""
+    if not workouts:
+        raise ValueError("No workouts provided")
+    
+    sorted_workouts = sorted(workouts, key=lambda x: x.recorded_at)
+    
+    dates = [w.recorded_at for w in sorted_workouts]
+    durations = [w.duration_min for w in sorted_workouts]
+    calories = [w.calories_burned or 0 for w in sorted_workouts]
+    
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    
+    # Duration bars
+    ax1.bar(dates, durations, color=COLORS['primary'], alpha=0.7, label='Duration', width=0.8)
+    ax1.set_ylabel('Duration (minutes)', color=COLORS['primary'])
+    ax1.tick_params(axis='y', labelcolor=COLORS['primary'])
+    
+    # Calories line
+    ax2 = ax1.twinx()
+    ax2.plot(dates, calories, color=COLORS['danger'], linewidth=2, marker='o', 
+             markersize=6, label='Calories')
+    ax2.set_ylabel('Calories Burned', color=COLORS['danger'])
+    ax2.tick_params(axis='y', labelcolor=COLORS['danger'])
+    
+    ax1.set_xlabel('Date')
+    ax1.set_title('Workout Duration & Calories Burned')
+    
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+# ============================================================================
+# MENTAL HEALTH / WELLNESS CHARTS
+# ============================================================================
+
+def plot_dopamine_vs_cortisol(
+    daily_data: List[DailyWellnessEntry],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """
+    Plot Dopamine (green) vs Cortisol (red) over time.
+    This is the main mental health visualization.
+    """
+    if not daily_data:
+        raise ValueError("No daily wellness data provided")
+    
+    sorted_data = sorted(daily_data, key=lambda x: x.date)
+    
+    dates = [d.date for d in sorted_data]
+    dopamine = [d.dopamine for d in sorted_data]
+    cortisol = [d.cortisol for d in sorted_data]
+    
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # Fill areas
+    ax.fill_between(dates, dopamine, alpha=0.4, color=COLORS['dopamine'], label='Dopamine (Wellness)')
+    ax.fill_between(dates, cortisol, alpha=0.4, color=COLORS['cortisol'], label='Cortisol (Stress)')
+    
+    # Lines
+    ax.plot(dates, dopamine, color=COLORS['dopamine'], linewidth=3, marker='o', 
+            markersize=8, label=f'Dopamine avg: {sum(dopamine)/len(dopamine):.0f}')
+    ax.plot(dates, cortisol, color=COLORS['cortisol'], linewidth=3, marker='s', 
+            markersize=7, label=f'Cortisol avg: {sum(cortisol)/len(cortisol):.0f}')
+    
+    # Reference lines
+    ax.axhline(y=70, color=COLORS['dopamine'], linestyle='--', alpha=0.5, linewidth=1)
+    ax.axhline(y=40, color=COLORS['cortisol'], linestyle='--', alpha=0.5, linewidth=1)
+    
+    ax.annotate('Target Dopamine ≥70', xy=(dates[-1], 70), xytext=(5, 5), 
+                textcoords='offset points', fontsize=8, color=COLORS['dopamine'])
+    ax.annotate('Target Cortisol ≤40', xy=(dates[-1], 40), xytext=(5, -10), 
+                textcoords='offset points', fontsize=8, color=COLORS['cortisol'])
+    
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Level (0-100)')
+    ax.set_title('Mental Health: Dopamine vs Cortisol', fontsize=14, fontweight='bold')
+    ax.set_ylim(0, 105)
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.xticks(rotation=45)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_wellness_breakdown(
+    scores: WellnessScores,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot wellness score breakdown as a radar/spider chart."""
+    categories = ['Sleep', 'Workout', 'Nutrition', 'Dopamine', 'Stress\nManagement']
+    values = [
+        scores.sleep_score,
+        scores.workout_score,
+        scores.nutrition_score,
+        scores.dopamine_level,
+        100 - scores.cortisol_level  # Invert cortisol for "stress management"
+    ]
+    
+    # Number of variables
+    N = len(categories)
+    
+    # Compute angle for each category
+    angles = [n / float(N) * 2 * 3.14159 for n in range(N)]
+    values_plot = values + [values[0]]  # Close the radar
+    angles += angles[:1]
+    
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+    
+    # Draw the radar chart
+    ax.plot(angles, values_plot, color=COLORS['primary'], linewidth=2)
+    ax.fill(angles, values_plot, color=COLORS['primary'], alpha=0.25)
+    
+    # Add markers at each point
+    for angle, val, cat in zip(angles[:-1], values, categories):
+        ax.plot(angle, val, 'o', color=COLORS['accent'], markersize=10)
+        # Add value label
+        ax.annotate(f'{val}', xy=(angle, val), xytext=(5, 5), 
+                   textcoords='offset points', fontsize=10, fontweight='bold')
+    
+    # Set category labels
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(categories, fontsize=11)
+    
+    # Set radial limits
+    ax.set_ylim(0, 100)
+    ax.set_yticks([20, 40, 60, 80, 100])
+    ax.set_yticklabels(['20', '40', '60', '80', '100'], fontsize=8)
+    
+    ax.set_title('Wellness Score Breakdown', fontsize=14, fontweight='bold', pad=20)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_wellness_gauges(
+    scores: WellnessScores,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot dopamine and cortisol as gauge meters."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    for idx, (ax, (label, value, color, good_high)) in enumerate(zip(
+        axes,
+        [
+            ('Dopamine Level', scores.dopamine_level, COLORS['dopamine'], True),
+            ('Cortisol Level', scores.cortisol_level, COLORS['cortisol'], False)
+        ]
+    )):
+        # Create semi-circle gauge
+        import numpy as np
+        
+        # Background arc (full semi-circle)
+        theta_bg = np.linspace(0, np.pi, 100)
+        r_bg = 1
+        x_bg = r_bg * np.cos(theta_bg)
+        y_bg = r_bg * np.sin(theta_bg)
+        ax.fill_between(x_bg, 0, y_bg, color=COLORS['card'], alpha=0.5)
+        
+        # Value arc
+        value_angle = (value / 100) * np.pi
+        theta_val = np.linspace(0, value_angle, 50)
+        x_val = 0.95 * np.cos(theta_val)
+        y_val = 0.95 * np.sin(theta_val)
+        ax.fill_between(x_val, 0, y_val, color=color, alpha=0.7)
+        
+        # Outer border
+        ax.plot(x_bg, y_bg, color=COLORS['muted'], linewidth=2)
+        ax.plot([-1, 1], [0, 0], color=COLORS['muted'], linewidth=2)
+        
+        # Needle
+        needle_angle = value_angle
+        needle_x = 0.7 * np.cos(needle_angle)
+        needle_y = 0.7 * np.sin(needle_angle)
+        ax.annotate('', xy=(needle_x, needle_y), xytext=(0, 0),
+                    arrowprops=dict(arrowstyle='->', color=COLORS['text'], lw=3))
+        
+        # Center dot
+        ax.plot(0, 0, 'o', color=COLORS['text'], markersize=15)
+        
+        # Value text
+        ax.text(0, 0.3, f'{value}', ha='center', va='center', 
+                fontsize=36, fontweight='bold', color=color)
+        
+        # Label
+        ax.text(0, -0.3, label, ha='center', va='center', 
+                fontsize=14, fontweight='bold', color=COLORS['text'])
+        
+        # Status text
+        if good_high:
+            status = 'Excellent' if value >= 70 else 'Good' if value >= 50 else 'Low'
+        else:
+            status = 'Low' if value <= 40 else 'Moderate' if value <= 60 else 'High'
+        
+        status_color = COLORS['success'] if (good_high and value >= 70) or (not good_high and value <= 40) else \
+                       COLORS['warning'] if (good_high and value >= 50) or (not good_high and value <= 60) else \
+                       COLORS['danger']
+        
+        ax.text(0, -0.5, status, ha='center', va='center', 
+                fontsize=12, color=status_color)
+        
+        ax.set_xlim(-1.2, 1.2)
+        ax.set_ylim(-0.7, 1.2)
+        ax.set_aspect('equal')
+        ax.axis('off')
+    
+    fig.suptitle('Mental Health Meters', fontsize=16, fontweight='bold', y=1.02)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def plot_daily_factors(
+    daily_data: List[DailyWellnessEntry],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Plot daily factors (sleep, workout, meals, water) that affect wellness."""
+    if not daily_data:
+        raise ValueError("No daily wellness data provided")
+    
+    sorted_data = sorted(daily_data, key=lambda x: x.date)
+    
+    dates = [d.date for d in sorted_data]
+    sleep = [d.sleep_hours for d in sorted_data]
+    workout = [d.workout_minutes for d in sorted_data]
+    meals = [d.meals for d in sorted_data]
+    water = [d.water_glasses for d in sorted_data]
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Sleep
+    ax = axes[0, 0]
+    colors = [COLORS['success'] if 7 <= s <= 9 else COLORS['warning'] if s >= 6 else COLORS['danger'] for s in sleep]
+    ax.bar(dates, sleep, color=colors, edgecolor='white', linewidth=0.5)
+    ax.axhline(y=7, color=COLORS['accent'], linestyle='--', alpha=0.7, label='Min target (7h)')
+    ax.axhline(y=9, color=COLORS['accent'], linestyle='--', alpha=0.7, label='Max target (9h)')
+    ax.set_ylabel('Hours')
+    ax.set_title('Sleep Duration')
+    ax.legend(loc='upper right', fontsize=8)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    # Workout
+    ax = axes[0, 1]
+    colors = [COLORS['success'] if w >= 30 else COLORS['warning'] if w > 0 else COLORS['danger'] for w in workout]
+    ax.bar(dates, workout, color=colors, edgecolor='white', linewidth=0.5)
+    ax.axhline(y=30, color=COLORS['accent'], linestyle='--', alpha=0.7, label='Target (30 min)')
+    ax.set_ylabel('Minutes')
+    ax.set_title('Workout Duration')
+    ax.legend(loc='upper right', fontsize=8)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    # Meals
+    ax = axes[1, 0]
+    colors = [COLORS['success'] if m >= 3 else COLORS['warning'] if m >= 2 else COLORS['danger'] for m in meals]
+    ax.bar(dates, meals, color=colors, edgecolor='white', linewidth=0.5)
+    ax.axhline(y=3, color=COLORS['accent'], linestyle='--', alpha=0.7, label='Target (3 meals)')
+    ax.set_ylabel('Meals')
+    ax.set_title('Daily Meals')
+    ax.legend(loc='upper right', fontsize=8)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    # Water
+    ax = axes[1, 1]
+    colors = [COLORS['success'] if w >= 8 else COLORS['warning'] if w >= 6 else COLORS['danger'] for w in water]
+    ax.bar(dates, water, color=colors, edgecolor='white', linewidth=0.5)
+    ax.axhline(y=8, color=COLORS['accent'], linestyle='--', alpha=0.7, label='Target (8 glasses)')
+    ax.set_ylabel('Glasses')
+    ax.set_title('Water Intake')
+    ax.legend(loc='upper right', fontsize=8)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    fig.suptitle('Daily Wellness Factors', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+# ============================================================================
+# DASHBOARD / COMBINED CHARTS
+# ============================================================================
+
+def plot_health_dashboard(
+    bp_logs: List[BloodPressureLog],
+    sleep_logs: List[SleepLog],
+    workouts: List[Workout],
+    wellness_scores: WellnessScores,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """Create a comprehensive health dashboard with multiple charts."""
+    fig = plt.figure(figsize=(18, 12))
+    
+    # Create grid
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+    
+    # Blood Pressure Trend (top left, spans 2 columns)
+    ax1 = fig.add_subplot(gs[0, :2])
+    if bp_logs:
+        sorted_logs = sorted(bp_logs, key=lambda x: x.recorded_at)
+        dates = [log.recorded_at for log in sorted_logs]
+        systolic = [log.systolic for log in sorted_logs]
+        diastolic = [log.diastolic for log in sorted_logs]
+        
+        ax1.plot(dates, systolic, color=COLORS['systolic'], linewidth=2, marker='o', markersize=5, label='Systolic')
+        ax1.plot(dates, diastolic, color=COLORS['diastolic'], linewidth=2, marker='s', markersize=4, label='Diastolic')
+        ax1.fill_between(dates, systolic, diastolic, alpha=0.2, color=COLORS['primary'])
+        ax1.axhline(y=120, color=COLORS['muted'], linestyle='--', alpha=0.5)
+        ax1.axhline(y=80, color=COLORS['muted'], linestyle='--', alpha=0.5)
+        ax1.legend(loc='upper right')
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
+    ax1.set_title('Blood Pressure Trend', fontweight='bold')
+    ax1.set_ylabel('mmHg')
+    ax1.grid(True, alpha=0.3)
+    
+    # Dopamine vs Cortisol (top right)
+    ax2 = fig.add_subplot(gs[0, 2])
+    categories = ['Dopamine', 'Cortisol']
+    values = [wellness_scores.dopamine_level, wellness_scores.cortisol_level]
+    colors = [COLORS['dopamine'], COLORS['cortisol']]
+    bars = ax2.bar(categories, values, color=colors, edgecolor='white')
+    for bar, val in zip(bars, values):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 2, f'{val}',
+                ha='center', va='bottom', fontweight='bold', fontsize=12)
+    ax2.set_ylim(0, 110)
+    ax2.set_title('Mental Health', fontweight='bold')
+    ax2.set_ylabel('Level (0-100)')
+    
+    # Sleep Duration (middle left)
+    ax3 = fig.add_subplot(gs[1, 0])
+    if sleep_logs:
+        sorted_logs = sorted(sleep_logs, key=lambda x: x.sleep_end)
+        analyses = [analyze_sleep_log(log) for log in sorted_logs]
+        dates = [a.sleep_end.date() for a in analyses]
+        durations = [a.duration_hours for a in analyses]
+        colors_sleep = [COLORS['success'] if 7 <= d <= 9 else COLORS['warning'] for d in durations]
+        ax3.bar(dates, durations, color=colors_sleep, edgecolor='white', linewidth=0.5)
+        ax3.axhline(y=7, color=COLORS['accent'], linestyle='--', alpha=0.7)
+        ax3.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+        plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45)
+    ax3.set_title('Sleep Duration', fontweight='bold')
+    ax3.set_ylabel('Hours')
+    
+    # Workout Summary (middle center)
+    ax4 = fig.add_subplot(gs[1, 1])
+    if workouts:
+        type_counts = {}
+        for w in workouts:
+            type_counts[w.workout_type.value] = type_counts.get(w.workout_type.value, 0) + 1
+        types = list(type_counts.keys())
+        counts = list(type_counts.values())
+        ax4.pie(counts, labels=types, autopct='%1.0f%%', colors=plt.cm.viridis([i/len(types) for i in range(len(types))]))
+    ax4.set_title('Workouts by Type', fontweight='bold')
+    
+    # Wellness Scores (middle right)
+    ax5 = fig.add_subplot(gs[1, 2])
+    categories = ['Sleep', 'Workout', 'Nutrition']
+    scores = [wellness_scores.sleep_score, wellness_scores.workout_score, wellness_scores.nutrition_score]
+    colors_scores = [COLORS['primary'], COLORS['accent'], COLORS['warning']]
+    bars = ax5.barh(categories, scores, color=colors_scores, edgecolor='white')
+    ax5.axvline(x=70, color=COLORS['success'], linestyle='--', alpha=0.7, label='Target')
+    for bar, score in zip(bars, scores):
+        ax5.text(score + 2, bar.get_y() + bar.get_height()/2, f'{score}',
+                va='center', fontweight='bold')
+    ax5.set_xlim(0, 110)
+    ax5.set_title('Wellness Scores', fontweight='bold')
+    ax5.legend(loc='lower right')
+    
+    # Statistics Summary (bottom, spans all columns)
+    ax6 = fig.add_subplot(gs[2, :])
+    ax6.axis('off')
+    
+    # Create summary text
+    summary_text = f"""
+    HEALTH SUMMARY
+    
+    Blood Pressure: {len(bp_logs)} readings | Sleep: {len(sleep_logs)} nights logged | Workouts: {len(workouts)} sessions
+    
+    Wellness Metrics:
+    • Sleep Score: {wellness_scores.sleep_score}/100 (Avg: {wellness_scores.avg_sleep_hours}h, Quality: {wellness_scores.avg_sleep_quality}/10)
+    • Workout Score: {wellness_scores.workout_score}/100 ({wellness_scores.workout_days} sessions, Avg: {wellness_scores.avg_workout_duration} min)
+    • Nutrition Score: {wellness_scores.nutrition_score}/100 ({wellness_scores.avg_meals_per_day} meals/day, {wellness_scores.avg_water_intake} glasses water)
+    
+    Mental Health: Dopamine {wellness_scores.dopamine_level} | Cortisol {wellness_scores.cortisol_level}
+    """
+    
+    ax6.text(0.5, 0.5, summary_text, ha='center', va='center', fontsize=11,
+             family='monospace', transform=ax6.transAxes,
+             bbox=dict(boxstyle='round', facecolor=COLORS['card'], edgecolor=COLORS['muted']))
+    
+    fig.suptitle('Health Dashboard', fontsize=18, fontweight='bold', y=0.98)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    
+    return fig
+
+
+def save_all_charts(
+    bp_logs: List[BloodPressureLog],
+    sleep_logs: List[SleepLog],
+    workouts: List[Workout],
+    nutrition_logs: List[NutritionLog],
+    daily_wellness: List[DailyWellnessEntry],
+    wellness_scores: WellnessScores,
+    output_dir: str = "charts"
+) -> List[str]:
+    """Generate and save all charts to a directory."""
+    os.makedirs(output_dir, exist_ok=True)
+    saved_files = []
+    
+    # Blood Pressure charts
+    if bp_logs:
+        path = os.path.join(output_dir, "bp_trend.png")
+        plot_blood_pressure_trend(bp_logs, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "bp_distribution.png")
+        plot_bp_distribution(bp_logs, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "bp_with_hr.png")
+        plot_bp_with_heart_rate(bp_logs, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    # Sleep charts
+    if sleep_logs:
+        path = os.path.join(output_dir, "sleep_duration.png")
+        plot_sleep_duration(sleep_logs, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "sleep_quality.png")
+        try:
+            plot_sleep_quality(sleep_logs, save_path=path, show=False)
+            saved_files.append(path)
+        except ValueError:
+            pass
+        plt.close()
+        
+        path = os.path.join(output_dir, "sleep_combined.png")
+        plot_sleep_combined(sleep_logs, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    # Workout charts
+    if workouts:
+        path = os.path.join(output_dir, "workout_frequency.png")
+        plot_workout_frequency(workouts, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "workout_duration_calories.png")
+        plot_workout_duration_calories(workouts, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    # Mental Health / Wellness charts
+    if daily_wellness:
+        path = os.path.join(output_dir, "dopamine_vs_cortisol.png")
+        plot_dopamine_vs_cortisol(daily_wellness, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "daily_factors.png")
+        plot_daily_factors(daily_wellness, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    if wellness_scores:
+        path = os.path.join(output_dir, "wellness_breakdown.png")
+        plot_wellness_breakdown(wellness_scores, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+        
+        path = os.path.join(output_dir, "wellness_gauges.png")
+        plot_wellness_gauges(wellness_scores, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    # Dashboard
+    if bp_logs and sleep_logs and workouts and wellness_scores:
+        path = os.path.join(output_dir, "health_dashboard.png")
+        plot_health_dashboard(bp_logs, sleep_logs, workouts, wellness_scores, save_path=path, show=False)
+        saved_files.append(path)
+        plt.close()
+    
+    return saved_files
