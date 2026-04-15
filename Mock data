@@ -1,0 +1,171 @@
+"""
+Mock Data for Health Tracking Application
+==========================================
+Sample data for testing and demonstration purposes.
+"""
+
+from health_calculations import (
+    User,
+    BloodPressureLog,
+    SleepLog,
+    Workout,
+    Exercise,
+    HealthMetric,
+    NutritionLog,
+)
+
+# =============================================================================
+# User Data
+# =============================================================================
+
+user = User(
+    id=1,
+    name="John Doe",
+    email="john@email.com",
+    date_of_birth="2000-05-21",
+    gender="Male",
+    height_cm=175.5,
+    weight_kg=70.2,
+    created_at="2026-04-01T10:00:00"
+)
+
+
+# =============================================================================
+# Blood Pressure Logs
+# =============================================================================
+
+blood_pressure_logs = [
+    BloodPressureLog(id=101, systolic=120, diastolic=80, heart_rate=72, recorded_at="2026-04-01T09:00:00", notes="Post workout reading"),
+    BloodPressureLog(id=102, systolic=118, diastolic=78, heart_rate=68, recorded_at="2026-03-31T09:00:00", notes="Morning reading"),
+    BloodPressureLog(id=103, systolic=122, diastolic=82, heart_rate=74, recorded_at="2026-03-30T09:00:00", notes=""),
+    BloodPressureLog(id=104, systolic=119, diastolic=79, heart_rate=70, recorded_at="2026-03-29T09:00:00", notes="Rested"),
+    BloodPressureLog(id=105, systolic=124, diastolic=84, heart_rate=76, recorded_at="2026-03-28T09:00:00", notes="After coffee"),
+    BloodPressureLog(id=106, systolic=116, diastolic=76, heart_rate=66, recorded_at="2026-03-27T09:00:00", notes=""),
+    BloodPressureLog(id=107, systolic=121, diastolic=81, heart_rate=73, recorded_at="2026-03-26T09:00:00", notes="Slightly stressed"),
+    BloodPressureLog(id=108, systolic=117, diastolic=77, heart_rate=69, recorded_at="2026-03-25T09:00:00", notes=""),
+    BloodPressureLog(id=109, systolic=123, diastolic=83, heart_rate=75, recorded_at="2026-03-24T09:00:00", notes=""),
+    BloodPressureLog(id=110, systolic=115, diastolic=75, heart_rate=65, recorded_at="2026-03-23T09:00:00", notes="Very relaxed"),
+]
+
+
+# =============================================================================
+# Sleep Logs
+# =============================================================================
+
+sleep_logs = [
+    SleepLog(id=201, sleep_start="2026-03-31T23:00:00", sleep_end="2026-04-01T07:00:00", sleep_quality=8, notes="Slept well"),
+    SleepLog(id=202, sleep_start="2026-03-30T23:30:00", sleep_end="2026-03-31T06:30:00", sleep_quality=7, notes=""),
+    SleepLog(id=203, sleep_start="2026-03-29T00:00:00", sleep_end="2026-03-29T07:15:00", sleep_quality=6, notes="Woke up once"),
+    SleepLog(id=204, sleep_start="2026-03-28T22:45:00", sleep_end="2026-03-29T06:45:00", sleep_quality=9, notes="Deep sleep"),
+    SleepLog(id=205, sleep_start="2026-03-27T23:15:00", sleep_end="2026-03-28T07:30:00", sleep_quality=8, notes=""),
+    SleepLog(id=206, sleep_start="2026-03-26T00:30:00", sleep_end="2026-03-27T07:00:00", sleep_quality=5, notes="Restless"),
+    SleepLog(id=207, sleep_start="2026-03-25T23:00:00", sleep_end="2026-03-26T08:00:00", sleep_quality=9, notes="Weekend sleep"),
+]
+
+# Poor sleep data for testing warnings
+poor_sleep_logs = [
+    SleepLog(id=301, sleep_start="2026-03-31T01:00:00", sleep_end="2026-04-01T06:00:00", sleep_quality=4, notes="Insomnia"),
+    SleepLog(id=302, sleep_start="2026-03-30T02:00:00", sleep_end="2026-03-31T06:30:00", sleep_quality=3, notes="Stressed"),
+    SleepLog(id=303, sleep_start="2026-03-29T00:30:00", sleep_end="2026-03-29T05:30:00", sleep_quality=5, notes=""),
+    SleepLog(id=304, sleep_start="2026-03-28T01:00:00", sleep_end="2026-03-29T06:00:00", sleep_quality=4, notes=""),
+    SleepLog(id=305, sleep_start="2026-03-27T00:00:00", sleep_end="2026-03-28T05:00:00", sleep_quality=3, notes="Very poor"),
+]
+
+
+# =============================================================================
+# Workout Data
+# =============================================================================
+
+workouts = [
+    Workout(id=1, workout_type="Strength", duration_min=45, calories_burned=320, recorded_at="2026-04-01T06:00:00", notes="Upper body focus"),
+    Workout(id=2, workout_type="Cardio", duration_min=30, calories_burned=280, recorded_at="2026-03-30T07:00:00", notes="Morning run"),
+    Workout(id=3, workout_type="HIIT", duration_min=25, calories_burned=350, recorded_at="2026-03-29T18:00:00", notes="Intense session"),
+    Workout(id=4, workout_type="Strength", duration_min=50, calories_burned=340, recorded_at="2026-03-28T06:00:00", notes="Leg day"),
+    Workout(id=5, workout_type="Yoga", duration_min=45, calories_burned=150, recorded_at="2026-03-27T07:00:00", notes="Recovery"),
+    Workout(id=6, workout_type="Cardio", duration_min=40, calories_burned=320, recorded_at="2026-03-25T18:00:00", notes="Cycling"),
+    Workout(id=7, workout_type="Strength", duration_min=55, calories_burned=380, recorded_at="2026-03-24T06:00:00", notes="Full body"),
+]
+
+exercises = [
+    # Workout 1 - Upper Body
+    Exercise(id=1, workout_id=1, name="Bench Press", sets=4, reps=10, weight_kg=60),
+    Exercise(id=2, workout_id=1, name="Shoulder Press", sets=3, reps=12, weight_kg=25),
+    Exercise(id=3, workout_id=1, name="Bicep Curls", sets=3, reps=15, weight_kg=12),
+    Exercise(id=4, workout_id=1, name="Tricep Dips", sets=3, reps=12, weight_kg=0),
+    # Workout 4 - Leg Day
+    Exercise(id=5, workout_id=4, name="Squats", sets=4, reps=10, weight_kg=80),
+    Exercise(id=6, workout_id=4, name="Leg Press", sets=4, reps=12, weight_kg=120),
+    Exercise(id=7, workout_id=4, name="Lunges", sets=3, reps=10, weight_kg=20),
+    Exercise(id=8, workout_id=4, name="Calf Raises", sets=3, reps=15, weight_kg=40),
+    # Workout 7 - Full Body
+    Exercise(id=9, workout_id=7, name="Deadlift", sets=4, reps=8, weight_kg=100),
+    Exercise(id=10, workout_id=7, name="Pull-ups", sets=3, reps=8, weight_kg=0),
+    Exercise(id=11, workout_id=7, name="Squats", sets=3, reps=10, weight_kg=70),
+    Exercise(id=12, workout_id=7, name="Plank", sets=3, reps=1, weight_kg=0),  # 1 rep = 60 sec hold
+]
+
+
+# =============================================================================
+# Health Metrics
+# =============================================================================
+
+health_metrics = [
+    HealthMetric(id=1, metric_type="weight", value=70.2, recorded_at="2026-04-01T08:00:00"),
+    HealthMetric(id=2, metric_type="weight", value=70.5, recorded_at="2026-03-25T08:00:00"),
+    HealthMetric(id=3, metric_type="weight", value=71.0, recorded_at="2026-03-18T08:00:00"),
+    HealthMetric(id=4, metric_type="weight", value=71.3, recorded_at="2026-03-11T08:00:00"),
+    HealthMetric(id=5, metric_type="body_fat", value=15.5, recorded_at="2026-04-01T08:00:00"),
+    HealthMetric(id=6, metric_type="body_fat", value=16.0, recorded_at="2026-03-18T08:00:00"),
+    HealthMetric(id=7, metric_type="resting_hr", value=62, recorded_at="2026-04-01T08:00:00"),
+    HealthMetric(id=8, metric_type="resting_hr", value=65, recorded_at="2026-03-25T08:00:00"),
+]
+
+
+# =============================================================================
+# Nutrition Logs
+# =============================================================================
+
+nutrition_logs = [
+    NutritionLog(id=601, date="2026-04-01", meals=3, calories=2100, protein=120, water=8),
+    NutritionLog(id=602, date="2026-03-31", meals=3, calories=2050, protein=115, water=7),
+    NutritionLog(id=603, date="2026-03-30", meals=3, calories=2200, protein=125, water=8),
+    NutritionLog(id=604, date="2026-03-29", meals=2, calories=1600, protein=80, water=5),
+    NutritionLog(id=605, date="2026-03-28", meals=2, calories=1800, protein=90, water=6),
+    NutritionLog(id=606, date="2026-03-27", meals=3, calories=2150, protein=118, water=8),
+    NutritionLog(id=607, date="2026-03-26", meals=3, calories=2100, protein=122, water=7),
+]
+
+# Poor nutrition data for testing
+poor_nutrition_logs = [
+    NutritionLog(id=701, date="2026-04-01", meals=1, calories=1200, protein=40, water=3),
+    NutritionLog(id=702, date="2026-03-31", meals=2, calories=1400, protein=50, water=4),
+    NutritionLog(id=703, date="2026-03-30", meals=1, calories=1100, protein=35, water=2),
+    NutritionLog(id=704, date="2026-03-29", meals=2, calories=1500, protein=55, water=4),
+    NutritionLog(id=705, date="2026-03-28", meals=1, calories=1000, protein=30, water=3),
+]
+
+
+# =============================================================================
+# Mental Health Trend Data (for charting)
+# =============================================================================
+
+mental_health_daily_data = [
+    {"date": "2026-03-26", "dopamine": 75, "cortisol": 35, "sleep_hours": 8.0, "workout_min": 35, "meals": 3},
+    {"date": "2026-03-27", "dopamine": 82, "cortisol": 28, "sleep_hours": 8.0, "workout_min": 55, "meals": 3},
+    {"date": "2026-03-28", "dopamine": 68, "cortisol": 45, "sleep_hours": 7.75, "workout_min": 40, "meals": 2},
+    {"date": "2026-03-29", "dopamine": 55, "cortisol": 58, "sleep_hours": 7.5, "workout_min": 0, "meals": 2},
+    {"date": "2026-03-30", "dopamine": 78, "cortisol": 32, "sleep_hours": 8.0, "workout_min": 30, "meals": 3},
+    {"date": "2026-03-31", "dopamine": 72, "cortisol": 38, "sleep_hours": 7.0, "workout_min": 60, "meals": 3},
+    {"date": "2026-04-01", "dopamine": 80, "cortisol": 30, "sleep_hours": 8.0, "workout_min": 45, "meals": 3},
+]
+
+
+if __name__ == "__main__":
+    print("Mock Data Module loaded successfully!")
+    print(f"User: {user.name}")
+    print(f"Blood Pressure Logs: {len(blood_pressure_logs)}")
+    print(f"Sleep Logs: {len(sleep_logs)}")
+    print(f"Workouts: {len(workouts)}")
+    print(f"Exercises: {len(exercises)}")
+    print(f"Health Metrics: {len(health_metrics)}")
+    print(f"Nutrition Logs: {len(nutrition_logs)}")
