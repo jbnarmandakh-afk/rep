@@ -1,0 +1,267 @@
+"""
+Health Tracking Application - Main Demo Script
+===============================================
+Demonstrates all health calculation functions with sample data.
+
+Run with: python main.py
+"""
+
+from health_calculations import (
+    # Blood pressure
+    categorize_blood_pressure,
+    calculate_mean_arterial_pressure,
+    calculate_pulse_pressure,
+    analyze_blood_pressure_trends,
+    # Sleep
+    calculate_sleep_duration_hours,
+    get_sleep_quality_label,
+    calculate_sleep_score,
+    analyze_sleep_logs,
+    analyze_sleep_bp_correlation,
+    # Workouts
+    analyze_workout_stats,
+    calculate_workout_score,
+    # Nutrition
+    calculate_nutrition_score,
+    analyze_nutrition_logs,
+    # Wellness
+    calculate_wellness_scores,
+    get_wellness_status,
+    generate_wellness_recommendations,
+    # BMI
+    calculate_bmi,
+    get_bmi_category,
+    # Summary
+    get_summary_stats,
+)
+
+from mock_data import (
+    user,
+    blood_pressure_logs,
+    sleep_logs,
+    poor_sleep_logs,
+    workouts,
+    exercises,
+    health_metrics,
+    nutrition_logs,
+    poor_nutrition_logs,
+)
+
+
+def print_section(title: str):
+    """Print a formatted section header."""
+    print("\n" + "=" * 60)
+    print(f"  {title}")
+    print("=" * 60)
+
+
+def demo_blood_pressure():
+    """Demonstrate blood pressure analysis."""
+    print_section("BLOOD PRESSURE ANALYSIS")
+    
+    # Analyze latest reading
+    latest = blood_pressure_logs[0]
+    print(f"\nLatest Reading: {latest.systolic}/{latest.diastolic} mmHg")
+    print(f"Heart Rate: {latest.heart_rate} bpm")
+    print(f"Category: {categorize_blood_pressure(latest.systolic, latest.diastolic).value}")
+    print(f"Mean Arterial Pressure: {calculate_mean_arterial_pressure(latest.systolic, latest.diastolic):.1f} mmHg")
+    print(f"Pulse Pressure: {calculate_pulse_pressure(latest.systolic, latest.diastolic)} mmHg")
+    
+    # Analyze trends
+    print("\n7-Day Trend Analysis:")
+    trends = analyze_blood_pressure_trends(blood_pressure_logs[:7])
+    print(f"  Average: {trends['avg_systolic']:.1f}/{trends['avg_diastolic']:.1f} mmHg")
+    print(f"  Range: {trends['min_systolic']}-{trends['max_systolic']}/{trends['min_diastolic']}-{trends['max_diastolic']} mmHg")
+    print(f"  Trend: {trends['trend']}")
+    print(f"  Overall Category: {trends['category'].value}")
+
+
+def demo_sleep_analysis():
+    """Demonstrate sleep analysis."""
+    print_section("SLEEP ANALYSIS")
+    
+    # Analyze good sleep
+    print("\n--- Good Sleep Pattern Analysis ---")
+    analysis = analyze_sleep_logs(sleep_logs)
+    print(f"Total Nights Tracked: {analysis['total_nights']}")
+    print(f"Average Duration: {analysis['avg_duration_hours']} hours")
+    print(f"Average Quality: {analysis['avg_quality']}/10 ({get_sleep_quality_label(int(analysis['avg_quality']))})")
+    print(f"Sleep Score: {analysis['avg_sleep_score']}/100")
+    print(f"Goal Achievement: {analysis['goal_achievement_rate']}%")
+    
+    # Sleep-BP Correlation (good sleep)
+    print("\nSleep-BP Correlation (Good Sleep):")
+    correlation = analyze_sleep_bp_correlation(sleep_logs)
+    print(f"  BP Risk Level: {correlation['bp_risk_level'].value}")
+    print(f"  Warnings: {len(correlation['warnings'])}")
+    
+    # Analyze poor sleep
+    print("\n--- Poor Sleep Pattern Analysis ---")
+    poor_analysis = analyze_sleep_logs(poor_sleep_logs)
+    print(f"Average Duration: {poor_analysis['avg_duration_hours']} hours")
+    print(f"Average Quality: {poor_analysis['avg_quality']}/10")
+    print(f"Sleep Score: {poor_analysis['avg_sleep_score']}/100")
+    
+    # Sleep-BP Correlation (poor sleep)
+    print("\nSleep-BP Correlation (Poor Sleep):")
+    poor_correlation = analyze_sleep_bp_correlation(poor_sleep_logs)
+    print(f"  BP Risk Level: {poor_correlation['bp_risk_level'].value}")
+    print(f"  Warnings: {len(poor_correlation['warnings'])}")
+    for warning in poor_correlation['warnings']:
+        print(f"    [{warning.type.upper()}] {warning.message}")
+        print(f"      {warning.detail[:80]}...")
+
+
+def demo_workout_analysis():
+    """Demonstrate workout analysis."""
+    print_section("WORKOUT ANALYSIS")
+    
+    stats = analyze_workout_stats(workouts)
+    print(f"\nTotal Workouts This Week: {stats['total_workouts']}")
+    print(f"Total Duration: {stats['total_duration_min']} minutes")
+    print(f"Total Calories Burned: {stats['total_calories']} kcal")
+    print(f"Average Duration: {stats['avg_duration_min']} minutes")
+    print(f"Average Calories: {stats['avg_calories']} kcal")
+    
+    print("\nWorkouts by Type:")
+    for workout_type, count in stats['workouts_by_type'].items():
+        print(f"  {workout_type}: {count}")
+    
+    # Workout score
+    workout_score = calculate_workout_score(stats['total_workouts'], stats['avg_duration_min'])
+    print(f"\nWorkout Score: {workout_score:.1f}/100")
+
+
+def demo_nutrition_analysis():
+    """Demonstrate nutrition analysis."""
+    print_section("NUTRITION ANALYSIS")
+    
+    analysis = analyze_nutrition_logs(nutrition_logs)
+    print(f"\nAverage Daily Meals: {analysis['avg_meals']}")
+    print(f"Average Daily Calories: {analysis['avg_calories']:.0f} kcal")
+    print(f"Average Daily Protein: {analysis['avg_protein']:.1f}g")
+    print(f"Average Water Intake: {analysis['avg_water']} glasses")
+    print(f"Nutrition Score: {analysis['nutrition_score']}/100")
+    
+    # Compare with poor nutrition
+    print("\n--- Poor Nutrition Pattern ---")
+    poor_analysis = analyze_nutrition_logs(poor_nutrition_logs)
+    print(f"Average Daily Meals: {poor_analysis['avg_meals']}")
+    print(f"Average Water Intake: {poor_analysis['avg_water']} glasses")
+    print(f"Nutrition Score: {poor_analysis['nutrition_score']}/100")
+
+
+def demo_mental_health():
+    """Demonstrate mental health/wellness calculations."""
+    print_section("MENTAL HEALTH / WELLNESS ANALYSIS")
+    
+    # Calculate wellness scores
+    scores = calculate_wellness_scores(sleep_logs, workouts, nutrition_logs)
+    
+    print("\n--- Wellness Breakdown ---")
+    print(f"Sleep Score: {scores['sleep_score']}/100")
+    print(f"Workout Score: {scores['workout_score']}/100")
+    print(f"Nutrition Score: {scores['nutrition_score']}/100")
+    
+    print("\n--- Hormone Level Estimates ---")
+    print(f"Dopamine Level: {scores['dopamine_level']}/100 (higher is better)")
+    print(f"Cortisol Level: {scores['cortisol_level']}/100 (lower is better)")
+    print(f"Overall Wellness: {scores['overall_wellness']}/100")
+    
+    status = get_wellness_status(scores['dopamine_level'], scores['cortisol_level'])
+    print(f"\nStatus: {status}")
+    
+    # Recommendations
+    print("\n--- Personalized Recommendations ---")
+    recommendations = generate_wellness_recommendations(scores)
+    for i, rec in enumerate(recommendations, 1):
+        print(f"{i}. {rec}")
+    
+    # Compare with poor lifestyle
+    print("\n--- High Stress Scenario ---")
+    poor_scores = calculate_wellness_scores(poor_sleep_logs, [], poor_nutrition_logs)
+    print(f"Dopamine Level: {poor_scores['dopamine_level']}/100")
+    print(f"Cortisol Level: {poor_scores['cortisol_level']}/100")
+    print(f"Status: {get_wellness_status(poor_scores['dopamine_level'], poor_scores['cortisol_level'])}")
+
+
+def demo_user_profile():
+    """Demonstrate user profile and BMI calculations."""
+    print_section("USER PROFILE")
+    
+    print(f"\nName: {user.name}")
+    print(f"Email: {user.email}")
+    print(f"Date of Birth: {user.date_of_birth}")
+    print(f"Gender: {user.gender}")
+    print(f"Height: {user.height_cm} cm")
+    print(f"Weight: {user.weight_kg} kg")
+    
+    bmi = calculate_bmi(user.weight_kg, user.height_cm)
+    print(f"\nBMI: {bmi}")
+    print(f"Category: {get_bmi_category(bmi)}")
+
+
+def demo_dashboard_summary():
+    """Demonstrate dashboard summary statistics."""
+    print_section("DASHBOARD SUMMARY")
+    
+    summary = get_summary_stats(
+        blood_pressure_logs,
+        sleep_logs,
+        workouts,
+        health_metrics
+    )
+    
+    print("\n--- Blood Pressure ---")
+    bp = summary['blood_pressure']
+    print(f"Latest: {bp['latest_systolic']}/{bp['latest_diastolic']} mmHg")
+    print(f"Category: {bp['category']}")
+    print(f"Trend: {bp['trend']}")
+    
+    print("\n--- Sleep ---")
+    sleep = summary['sleep']
+    print(f"Avg Duration: {sleep['avg_hours']} hours")
+    print(f"Avg Quality: {sleep['avg_quality']}/10")
+    print(f"Goal Rate: {sleep['goal_rate']}%")
+    
+    print("\n--- Workouts ---")
+    workout = summary['workouts']
+    print(f"This Week: {workout['this_week']} workouts")
+    print(f"Total Calories: {workout['total_calories']} kcal")
+    print(f"Avg Duration: {workout['avg_duration']} min")
+    
+    print("\n--- Weight ---")
+    print(f"Current: {summary['weight']} kg")
+
+
+def main():
+    """Run all demonstrations."""
+    print("\n" + "=" * 60)
+    print("       HEALTH TRACKING APPLICATION - PYTHON MODULE")
+    print("=" * 60)
+    print("\nThis module demonstrates all health calculations including:")
+    print("- Blood pressure analysis and categorization")
+    print("- Sleep quality and duration analysis")
+    print("- Sleep-blood pressure correlation")
+    print("- Workout statistics")
+    print("- Nutrition tracking")
+    print("- Mental health metrics (dopamine vs cortisol)")
+    print("- BMI calculations")
+    print("- Wellness recommendations")
+    
+    demo_user_profile()
+    demo_blood_pressure()
+    demo_sleep_analysis()
+    demo_workout_analysis()
+    demo_nutrition_analysis()
+    demo_mental_health()
+    demo_dashboard_summary()
+    
+    print("\n" + "=" * 60)
+    print("  Demo complete! Run 'pytest test_health_calculations.py -v'")
+    print("  to execute the full test suite.")
+    print("=" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    main()
