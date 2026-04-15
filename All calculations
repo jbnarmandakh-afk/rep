@@ -1,0 +1,898 @@
+"""
+Health Tracker - Core Calculations
+==================================
+All health metric calculations, analysis functions, and scoring algorithms.
+"""
+
+from datetime import datetime, date, timedelta
+from typing import List, Optional, Tuple
+from statistics import mean, stdev
+from collections import defaultdict
+
+from .models import (
+    BloodPressureLog, BloodPressureReading, BPCategory, BPSummary,
+    SleepLog, SleepAnalysis, SleepQualityRating, SleepSummary, SleepBPCorrelation,
+    Workout, WorkoutSummary,
+    NutritionLog,
+    HealthMetric, MetricType,
+    WellnessScores, DailyWellnessEntry, HealthAlert, AlertType, RiskLevel,
+    User
+)
+
+
+# ============================================================================
+# BLOOD PRESSURE CALCULATIONS
+# ============================================================================
+
+def categorize_blood_pressure(systolic: int, diastolic: int) -> BPCategory:
+    """
+    Categorize blood pressure based on American Heart Association guidelines.
+    
+    Categories:
+    - Normal: systolic < 120 AND diastolic < 80
+    - Elevated: systolic 120-129 AND diastolic < 80
+    - Hypertension Stage 1: systolic 130-139 OR diastolic 80-89
+    - Hypertension Stage 2: systolic >= 140 OR diastolic >= 90
+    - Hypertensive Crisis: systolic > 180 OR diastolic > 120
+    - Low (Hypotension): systolic < 90 OR diastolic < 60
+    """
+    # Check for crisis first (most urgent)
+    if systolic > 180 or diastolic > 120:
+        return BPCategory.HYPERTENSIVE_CRISIS
+    
+    # Check for low blood pressure
+    if systolic < 90 or diastolic < 60:
+        return BPCategory.LOW
+    
+    # Check stages from most severe to normal
+    if systolic >= 140 or diastolic >= 90:
+        return BPCategory.HYPERTENSION_STAGE_2
+    
+    if systolic >= 130 or diastolic >= 80:
+        return BPCategory.HYPERTENSION_STAGE_1
+    
+    if systolic >= 120 and diastolic < 80:
+        return BPCategory.ELEVATED
+    
+    return BPCategory.NORMAL
+
+
+def calculate_mean_arterial_pressure(systolic: int, diastolic: int) -> float:
+    """
+    Calculate Mean Arterial Pressure (MAP).
+    
+    MAP = Diastolic + (1/3 * Pulse Pressure)
+    MAP = Diastolic + (1/3 * (Systolic - Diastolic))
+    
+    Normal MAP range: 70-100 mmHg
+    """
+    pulse_pressure = systolic - diastolic
+    map_value = diastolic + (pulse_pressure / 3)
+    return round(map_value, 1)
+
+
+def calculate_pulse_pressure(systolic: int, diastolic: int) -> int:
+    """
+    Calculate Pulse Pressure.
+    
+    Pulse Pressure = Systolic - Diastolic
+    Normal range: 40-60 mmHg
+    High pulse pressure (>60) may indicate arterial stiffness
+    """
+    return systolic - diastolic
+
+
+def analyze_bp_reading(log: BloodPressureLog) -> BloodPressureReading:
+    """Convert a BP log to an analyzed reading with calculated fields."""
+    return BloodPressureReading(
+        bp_id=log.bp_id,
+        systolic=log.systolic,
+        diastolic=log.diastolic,
+        heart_rate=log.heart_rate,
+        recorded_at=log.recorded_at,
+        category=categorize_blood_pressure(log.systolic, log.diastolic),
+        mean_arterial_pressure=calculate_mean_arterial_pressure(log.systolic, log.diastolic),
+        pulse_pressure=calculate_pulse_pressure(log.systolic, log.diastolic),
+        notes=log.notes
+    )
+
+
+def calculate_bp_trend(readings: List[BloodPressureLog], days: int = 7) -> str:
+    """
+    Analyze BP trend over specified period.
+    
+    Returns: "improving", "stable", or "worsening"
+    """
+    if len(readings) < 2:
+        return "stable"
+    
+    # Sort by date (newest first)
+    sorted_readings = sorted(readings, key=lambda x: x.recorded_at, reverse=True)
+    
+    # Split into recent half and older half
+    mid = len(sorted_readings) // 2
+    recent = sorted_readings[:mid] if mid > 0 else sorted_readings[:1]
+    older = sorted_readings[mid:] if mid > 0 else sorted_readings[1:]
+    
+    if not older:
+        return "stable"
+    
+    # Calculate average systolic for each period
+    recent_avg = mean(r.systolic for r in recent)
+    older_avg = mean(r.systolic for r in older)
+    
+    # Determine trend (5 mmHg threshold for significance)
+    diff = recent_avg - older_avg
+    
+    if diff < -5:
+        return "improving"
+    elif diff > 5:
+        return "worsening"
+    else:
+        return "stable"
+
+
+def calculate_bp_summary(readings: List[BloodPressureLog]) -> BPSummary:
+    """Calculate summary statistics for blood pressure readings."""
+    if not readings:
+        return BPSummary(
+            avg_systolic=0,
+            avg_diastolic=0,
+            avg_heart_rate=None,
+            latest_reading=None,
+            trend="stable",
+            readings_count=0
+        )
+    
+    avg_sys = mean(r.systolic for r in readings)
+    avg_dia = mean(r.diastolic for r in readings)
+    
+    # Heart rate average (only if available)
+    hr_readings = [r.heart_rate for r in readings if r.heart_rate is not None]
+    avg_hr = mean(hr_readings) if hr_readings else None
+    
+    # Latest reading
+    sorted_readings = sorted(readings, key=lambda x: x.recorded_at, reverse=True)
+    latest = analyze_bp_reading(sorted_readings[0])
+    
+    return BPSummary(
+        avg_systolic=round(avg_sys, 1),
+        avg_diastolic=round(avg_dia, 1),
+        avg_heart_rate=round(avg_hr, 1) if avg_hr else None,
+        latest_reading=latest,
+        trend=calculate_bp_trend(readings),
+        readings_count=len(readings)
+    )
+
+
+def get_bp_health_score(readings: List[BloodPressureLog]) -> int:
+    """
+    Calculate a health score (0-100) based on BP readings.
+    
+    Scoring:
+    - Normal: 100 points
+    - Elevated: 75 points
+    - Stage 1: 50 points
+    - Stage 2: 25 points
+    - Crisis: 0 points
+    """
+    if not readings:
+        return 50  # Neutral score if no data
+    
+    category_scores = {
+        BPCategory.NORMAL: 100,
+        BPCategory.ELEVATED: 75,
+        BPCategory.HYPERTENSION_STAGE_1: 50,
+        BPCategory.HYPERTENSION_STAGE_2: 25,
+        BPCategory.HYPERTENSIVE_CRISIS: 0,
+        BPCategory.LOW: 60,  # Low BP is concerning but less so
+    }
+    
+    scores = []
+    for reading in readings:
+        category = categorize_blood_pressure(reading.systolic, reading.diastolic)
+        scores.append(category_scores[category])
+    
+    return round(mean(scores))
+
+
+# ============================================================================
+# SLEEP CALCULATIONS
+# ============================================================================
+
+def calculate_sleep_duration(sleep_start: datetime, sleep_end: datetime) -> float:
+    """Calculate sleep duration in hours."""
+    duration = sleep_end - sleep_start
+    hours = duration.total_seconds() / 3600
+    return round(hours, 2)
+
+
+def get_sleep_quality_rating(quality: Optional[int]) -> SleepQualityRating:
+    """Convert numeric quality (1-10) to rating category."""
+    if quality is None:
+        return SleepQualityRating.FAIR
+    
+    if quality >= 8:
+        return SleepQualityRating.EXCELLENT
+    elif quality >= 6:
+        return SleepQualityRating.GOOD
+    elif quality >= 4:
+        return SleepQualityRating.FAIR
+    else:
+        return SleepQualityRating.POOR
+
+
+def is_optimal_sleep_duration(hours: float) -> bool:
+    """
+    Check if sleep duration is within optimal range.
+    
+    Optimal range for adults: 7-9 hours (CDC recommendation)
+    """
+    return 7.0 <= hours <= 9.0
+
+
+def analyze_sleep_log(log: SleepLog) -> SleepAnalysis:
+    """Convert a sleep log to an analyzed entry with calculated fields."""
+    duration = calculate_sleep_duration(log.sleep_start, log.sleep_end)
+    
+    return SleepAnalysis(
+        sleep_id=log.sleep_id,
+        sleep_start=log.sleep_start,
+        sleep_end=log.sleep_end,
+        duration_hours=duration,
+        sleep_quality=log.sleep_quality,
+        quality_rating=get_sleep_quality_rating(log.sleep_quality),
+        is_optimal_duration=is_optimal_sleep_duration(duration),
+        notes=log.notes
+    )
+
+
+def calculate_sleep_summary(logs: List[SleepLog]) -> SleepSummary:
+    """Calculate summary statistics for sleep logs."""
+    if not logs:
+        return SleepSummary(
+            avg_duration_hours=0,
+            avg_quality=0,
+            total_logs=0,
+            optimal_nights_percent=0
+        )
+    
+    analyses = [analyze_sleep_log(log) for log in logs]
+    
+    avg_duration = mean(a.duration_hours for a in analyses)
+    
+    # Quality average (only if available)
+    quality_logs = [a.sleep_quality for a in analyses if a.sleep_quality is not None]
+    avg_quality = mean(quality_logs) if quality_logs else 0
+    
+    # Optimal nights percentage
+    optimal_count = sum(1 for a in analyses if a.is_optimal_duration)
+    optimal_percent = (optimal_count / len(analyses)) * 100
+    
+    return SleepSummary(
+        avg_duration_hours=round(avg_duration, 1),
+        avg_quality=round(avg_quality, 1),
+        total_logs=len(logs),
+        optimal_nights_percent=round(optimal_percent, 1)
+    )
+
+
+def calculate_sleep_score(logs: List[SleepLog]) -> int:
+    """
+    Calculate sleep health score (0-100).
+    
+    Based on:
+    - Duration (50%): 7-9 hours optimal
+    - Quality (50%): 1-10 scale normalized
+    """
+    if not logs:
+        return 50
+    
+    analyses = [analyze_sleep_log(log) for log in logs]
+    
+    # Duration score (optimal = 8 hours)
+    avg_duration = mean(a.duration_hours for a in analyses)
+    if avg_duration < 5:
+        duration_score = 20
+    elif avg_duration < 6:
+        duration_score = 40
+    elif avg_duration < 7:
+        duration_score = 60
+    elif 7 <= avg_duration <= 9:
+        duration_score = 100
+    elif avg_duration <= 10:
+        duration_score = 80
+    else:
+        duration_score = 60  # Too much sleep
+    
+    # Quality score
+    quality_logs = [a.sleep_quality for a in analyses if a.sleep_quality is not None]
+    if quality_logs:
+        avg_quality = mean(quality_logs)
+        quality_score = (avg_quality / 10) * 100
+    else:
+        quality_score = 50
+    
+    # Combined score
+    total_score = (duration_score * 0.5) + (quality_score * 0.5)
+    return round(min(100, max(0, total_score)))
+
+
+def analyze_sleep_bp_correlation(
+    sleep_logs: List[SleepLog],
+    bp_logs: Optional[List[BloodPressureLog]] = None
+) -> SleepBPCorrelation:
+    """
+    Analyze how sleep patterns affect blood pressure risk.
+    
+    Research shows:
+    - < 6 hours sleep: 20-30% increased hypertension risk
+    - < 7 hours sleep: 5-10 mmHg higher systolic BP
+    - Poor quality sleep disrupts autonomic nervous system
+    - > 9 hours may indicate underlying health issues
+    """
+    if not sleep_logs:
+        return SleepBPCorrelation(
+            avg_hours=0,
+            avg_quality=0,
+            bp_risk_level=RiskLevel.MODERATE,
+            warnings=[],
+            estimated_bp_impact="Insufficient data"
+        )
+    
+    analyses = [analyze_sleep_log(log) for log in sleep_logs]
+    avg_hours = mean(a.duration_hours for a in analyses)
+    
+    quality_logs = [a.sleep_quality for a in analyses if a.sleep_quality is not None]
+    avg_quality = mean(quality_logs) if quality_logs else 5.0
+    
+    warnings: List[HealthAlert] = []
+    
+    # Duration warnings
+    if avg_hours < 6:
+        warnings.append(HealthAlert(
+            alert_type=AlertType.DANGER,
+            title="Severe Sleep Deprivation",
+            message=f"Averaging {avg_hours:.1f} hours of sleep",
+            detail="Less than 6 hours of sleep significantly increases blood pressure and cortisol levels. "
+                   "Research shows 20-30% elevated risk of hypertension. This also impairs glucose metabolism "
+                   "and immune function."
+        ))
+    elif avg_hours < 7:
+        warnings.append(HealthAlert(
+            alert_type=AlertType.WARNING,
+            title="Insufficient Sleep Duration",
+            message=f"Averaging {avg_hours:.1f} hours of sleep",
+            detail="Studies show 7-9 hours is optimal for adults. Chronic short sleep is linked to "
+                   "elevated systolic BP (+5-10 mmHg) and increased cortisol production."
+        ))
+    
+    if avg_hours > 9:
+        warnings.append(HealthAlert(
+            alert_type=AlertType.INFO,
+            title="Excessive Sleep Duration",
+            message=f"Averaging {avg_hours:.1f} hours of sleep",
+            detail="Sleeping more than 9 hours regularly may indicate underlying health issues "
+                   "such as depression, sleep apnea, or chronic fatigue. This is also associated "
+                   "with increased cardiovascular risk."
+        ))
+    
+    # Quality warnings
+    if avg_quality < 5:
+        warnings.append(HealthAlert(
+            alert_type=AlertType.DANGER,
+            title="Poor Sleep Quality",
+            message=f"Quality score: {avg_quality:.1f}/10",
+            detail="Poor sleep quality disrupts your autonomic nervous system, increasing cortisol "
+                   "and adrenaline which raises blood pressure. Fragmented sleep prevents adequate "
+                   "nocturnal BP dipping, a key recovery mechanism."
+        ))
+    elif avg_quality < 7:
+        warnings.append(HealthAlert(
+            alert_type=AlertType.WARNING,
+            title="Below Optimal Sleep Quality",
+            message=f"Quality score: {avg_quality:.1f}/10",
+            detail="Aim for 7+ quality score. Fragmented or light sleep prevents adequate BP dipping "
+                   "during rest and impairs cortisol regulation."
+        ))
+    
+    # Determine risk level
+    if avg_hours < 6 or avg_quality < 5:
+        risk_level = RiskLevel.HIGH
+        bp_impact = "High risk: Estimated +10-15 mmHg systolic impact"
+    elif avg_hours < 7 or avg_quality < 7:
+        risk_level = RiskLevel.MODERATE
+        bp_impact = "Moderate risk: Estimated +5-10 mmHg systolic impact"
+    else:
+        risk_level = RiskLevel.LOW
+        bp_impact = "Low risk: Sleep patterns support healthy BP"
+    
+    return SleepBPCorrelation(
+        avg_hours=round(avg_hours, 1),
+        avg_quality=round(avg_quality, 1),
+        bp_risk_level=risk_level,
+        warnings=warnings,
+        estimated_bp_impact=bp_impact
+    )
+
+
+# ============================================================================
+# WORKOUT CALCULATIONS
+# ============================================================================
+
+def calculate_workout_summary(workouts: List[Workout]) -> WorkoutSummary:
+    """Calculate summary statistics for workouts."""
+    if not workouts:
+        return WorkoutSummary(
+            total_workouts=0,
+            total_duration_min=0,
+            total_calories=0,
+            workouts_by_type={},
+            avg_duration=0
+        )
+    
+    total_duration = sum(w.duration_min for w in workouts)
+    total_calories = sum(w.calories_burned or 0 for w in workouts)
+    
+    # Count by type
+    by_type: dict = defaultdict(int)
+    for w in workouts:
+        by_type[w.workout_type.value] += 1
+    
+    return WorkoutSummary(
+        total_workouts=len(workouts),
+        total_duration_min=total_duration,
+        total_calories=round(total_calories, 1),
+        workouts_by_type=dict(by_type),
+        avg_duration=round(total_duration / len(workouts), 1)
+    )
+
+
+def calculate_workout_score(workouts: List[Workout], period_days: int = 7) -> int:
+    """
+    Calculate workout health score (0-100).
+    
+    Based on:
+    - Frequency (60%): Target 5 workouts per week
+    - Duration (40%): Target 30-45 min average
+    """
+    if not workouts:
+        return 0
+    
+    # Frequency score (target: 5 per week)
+    workouts_per_week = (len(workouts) / period_days) * 7
+    frequency_score = min(100, (workouts_per_week / 5) * 100)
+    
+    # Duration score (optimal: 30-45 min)
+    avg_duration = mean(w.duration_min for w in workouts)
+    if avg_duration < 15:
+        duration_score = 30
+    elif avg_duration < 30:
+        duration_score = 60
+    elif 30 <= avg_duration <= 60:
+        duration_score = 100
+    elif avg_duration <= 90:
+        duration_score = 85
+    else:
+        duration_score = 70  # Very long workouts
+    
+    total_score = (frequency_score * 0.6) + (duration_score * 0.4)
+    return round(min(100, max(0, total_score)))
+
+
+def estimate_calories_burned(
+    workout_type: str,
+    duration_min: int,
+    weight_kg: float = 70.0
+) -> float:
+    """
+    Estimate calories burned based on workout type and duration.
+    Uses MET (Metabolic Equivalent of Task) values.
+    
+    Calories = MET * weight_kg * duration_hours
+    """
+    # MET values for different activities
+    met_values = {
+        "Cardio": 7.0,
+        "Strength": 5.0,
+        "HIIT": 8.0,
+        "Yoga": 3.0,
+        "Swimming": 6.0,
+        "Cycling": 7.5,
+        "Running": 9.8,
+        "Walking": 3.5,
+        "Other": 5.0,
+    }
+    
+    met = met_values.get(workout_type, 5.0)
+    duration_hours = duration_min / 60
+    calories = met * weight_kg * duration_hours
+    
+    return round(calories, 1)
+
+
+# ============================================================================
+# NUTRITION CALCULATIONS
+# ============================================================================
+
+def calculate_nutrition_score(logs: List[NutritionLog]) -> int:
+    """
+    Calculate nutrition health score (0-100).
+    
+    Based on:
+    - Meal consistency (50%): Target 3 meals per day
+    - Hydration (50%): Target 8 glasses of water
+    """
+    if not logs:
+        return 50
+    
+    avg_meals = mean(log.meals for log in logs)
+    avg_water = mean(log.water_glasses for log in logs)
+    
+    # Meal score (target: 3 meals)
+    if avg_meals < 2:
+        meal_score = 40
+    elif avg_meals < 3:
+        meal_score = 70
+    elif 3 <= avg_meals <= 4:
+        meal_score = 100
+    else:
+        meal_score = 80  # Too many meals/snacking
+    
+    # Water score (target: 8 glasses)
+    water_score = min(100, (avg_water / 8) * 100)
+    
+    total_score = (meal_score * 0.5) + (water_score * 0.5)
+    return round(min(100, max(0, total_score)))
+
+
+# ============================================================================
+# HEALTH METRICS CALCULATIONS
+# ============================================================================
+
+def calculate_bmi(weight_kg: float, height_cm: float) -> float:
+    """
+    Calculate Body Mass Index.
+    
+    BMI = weight_kg / (height_m)^2
+    
+    Categories:
+    - Underweight: < 18.5
+    - Normal: 18.5 - 24.9
+    - Overweight: 25 - 29.9
+    - Obese: >= 30
+    """
+    height_m = height_cm / 100
+    bmi = weight_kg / (height_m ** 2)
+    return round(bmi, 1)
+
+
+def get_bmi_category(bmi: float) -> str:
+    """Get BMI category label."""
+    if bmi < 18.5:
+        return "Underweight"
+    elif bmi < 25:
+        return "Normal"
+    elif bmi < 30:
+        return "Overweight"
+    else:
+        return "Obese"
+
+
+def calculate_ideal_weight_range(height_cm: float) -> Tuple[float, float]:
+    """
+    Calculate ideal weight range based on height.
+    Uses BMI range of 18.5 - 24.9 as healthy.
+    """
+    height_m = height_cm / 100
+    min_weight = 18.5 * (height_m ** 2)
+    max_weight = 24.9 * (height_m ** 2)
+    return (round(min_weight, 1), round(max_weight, 1))
+
+
+def analyze_metric_trend(metrics: List[HealthMetric]) -> str:
+    """Analyze trend for a specific metric type."""
+    if len(metrics) < 2:
+        return "stable"
+    
+    sorted_metrics = sorted(metrics, key=lambda x: x.recorded_at, reverse=True)
+    mid = len(sorted_metrics) // 2
+    
+    recent_avg = mean(m.value for m in sorted_metrics[:mid])
+    older_avg = mean(m.value for m in sorted_metrics[mid:])
+    
+    diff_percent = ((recent_avg - older_avg) / older_avg) * 100 if older_avg != 0 else 0
+    
+    if diff_percent < -5:
+        return "decreasing"
+    elif diff_percent > 5:
+        return "increasing"
+    else:
+        return "stable"
+
+
+# ============================================================================
+# WELLNESS / MENTAL HEALTH CALCULATIONS
+# ============================================================================
+
+def calculate_wellness_scores(
+    sleep_logs: List[SleepLog],
+    workouts: List[Workout],
+    nutrition_logs: List[NutritionLog],
+    period_days: int = 7
+) -> WellnessScores:
+    """
+    Calculate comprehensive wellness scores including dopamine and cortisol levels.
+    
+    Dopamine (Green - Positive Wellness):
+    - High when meeting sleep, exercise, and nutrition goals
+    - Represents reward, motivation, and positive habits
+    
+    Cortisol (Red - Stress Indicator):
+    - High when NOT meeting goals
+    - Represents stress, poor recovery, and health risks
+    """
+    # Individual scores
+    sleep_score = calculate_sleep_score(sleep_logs)
+    workout_score = calculate_workout_score(workouts, period_days)
+    nutrition_score = calculate_nutrition_score(nutrition_logs)
+    
+    # Detailed metrics
+    sleep_analyses = [analyze_sleep_log(log) for log in sleep_logs] if sleep_logs else []
+    avg_sleep_hours = mean(a.duration_hours for a in sleep_analyses) if sleep_analyses else 0
+    
+    quality_logs = [a.sleep_quality for a in sleep_analyses if a.sleep_quality is not None]
+    avg_sleep_quality = mean(quality_logs) if quality_logs else 0
+    
+    workout_days = len(workouts)
+    avg_workout_duration = round(mean(w.duration_min for w in workouts)) if workouts else 0
+    
+    avg_meals = mean(log.meals for log in nutrition_logs) if nutrition_logs else 0
+    avg_water = mean(log.water_glasses for log in nutrition_logs) if nutrition_logs else 0
+    
+    # DOPAMINE LEVEL (positive wellness)
+    # Weighted combination: Sleep 35%, Workout 35%, Nutrition 30%
+    dopamine_level = round(
+        (sleep_score * 0.35) + 
+        (workout_score * 0.35) + 
+        (nutrition_score * 0.30)
+    )
+    
+    # CORTISOL LEVEL (stress/negative)
+    # Inverse relationship - high when wellness is low
+    # But not a simple inverse - stress compounds when multiple areas are poor
+    
+    # Penalty multipliers for poor scores
+    sleep_penalty = max(0, (60 - sleep_score) / 60) if sleep_score < 60 else 0
+    workout_penalty = max(0, (50 - workout_score) / 50) if workout_score < 50 else 0
+    nutrition_penalty = max(0, (50 - nutrition_score) / 50) if nutrition_score < 50 else 0
+    
+    # Base cortisol from inverse of wellness
+    base_cortisol = 100 - dopamine_level
+    
+    # Compound penalty when multiple areas are poor
+    penalty_count = sum([sleep_penalty > 0, workout_penalty > 0, nutrition_penalty > 0])
+    compound_multiplier = 1 + (penalty_count * 0.1)  # 10% increase per poor area
+    
+    cortisol_level = round(min(100, base_cortisol * compound_multiplier))
+    
+    return WellnessScores(
+        sleep_score=sleep_score,
+        workout_score=workout_score,
+        nutrition_score=nutrition_score,
+        dopamine_level=dopamine_level,
+        cortisol_level=cortisol_level,
+        avg_sleep_hours=round(avg_sleep_hours, 1),
+        avg_sleep_quality=round(avg_sleep_quality, 1),
+        workout_days=workout_days,
+        avg_workout_duration=avg_workout_duration,
+        avg_meals_per_day=round(avg_meals, 1),
+        avg_water_intake=round(avg_water, 1)
+    )
+
+
+def calculate_daily_wellness(
+    date_val: date,
+    sleep_log: Optional[SleepLog],
+    workouts: List[Workout],
+    nutrition_log: Optional[NutritionLog]
+) -> DailyWellnessEntry:
+    """Calculate wellness metrics for a single day."""
+    
+    # Sleep
+    if sleep_log:
+        analysis = analyze_sleep_log(sleep_log)
+        sleep_hours = analysis.duration_hours
+        sleep_quality = sleep_log.sleep_quality or 5
+    else:
+        sleep_hours = 0
+        sleep_quality = 0
+    
+    # Workout
+    workout_minutes = sum(w.duration_min for w in workouts)
+    
+    # Nutrition
+    if nutrition_log:
+        meals = nutrition_log.meals
+        water = nutrition_log.water_glasses
+    else:
+        meals = 0
+        water = 0
+    
+    # Daily scores
+    sleep_score = 100 if 7 <= sleep_hours <= 9 else max(0, 100 - abs(8 - sleep_hours) * 15)
+    sleep_score = (sleep_score + (sleep_quality * 10)) / 2
+    
+    workout_score = min(100, (workout_minutes / 45) * 100) if workout_minutes > 0 else 0
+    
+    nutrition_score = ((meals / 3) * 50 + (water / 8) * 50)
+    nutrition_score = min(100, nutrition_score)
+    
+    # Daily dopamine and cortisol
+    dopamine = round((sleep_score * 0.35) + (workout_score * 0.35) + (nutrition_score * 0.30))
+    cortisol = round(100 - dopamine)
+    
+    # Compound stress if multiple areas are failing
+    failures = sum([sleep_hours < 6, workout_minutes == 0, meals < 2])
+    if failures >= 2:
+        cortisol = min(100, cortisol + 15)
+        dopamine = max(0, dopamine - 10)
+    
+    return DailyWellnessEntry(
+        date=date_val,
+        dopamine=dopamine,
+        cortisol=cortisol,
+        sleep_hours=sleep_hours,
+        workout_minutes=workout_minutes,
+        meals=meals,
+        water_glasses=water
+    )
+
+
+def get_wellness_status(scores: WellnessScores) -> str:
+    """
+    Determine overall wellness status based on scores.
+    
+    Returns: "Thriving", "Good", "Needs Attention", or "At Risk"
+    """
+    avg_score = (scores.sleep_score + scores.workout_score + scores.nutrition_score) / 3
+    
+    if avg_score >= 80 and scores.cortisol_level < 30:
+        return "Thriving"
+    elif avg_score >= 60 and scores.cortisol_level < 50:
+        return "Good"
+    elif avg_score >= 40 or scores.cortisol_level < 70:
+        return "Needs Attention"
+    else:
+        return "At Risk"
+
+
+def generate_wellness_recommendations(scores: WellnessScores) -> List[str]:
+    """Generate personalized recommendations based on wellness scores."""
+    recommendations = []
+    
+    # Sleep recommendations
+    if scores.avg_sleep_hours < 7:
+        recommendations.append(
+            f"Increase sleep duration: You're averaging {scores.avg_sleep_hours}h. "
+            "Aim for 7-9 hours to reduce cortisol and support recovery."
+        )
+    if scores.avg_sleep_quality < 7:
+        recommendations.append(
+            "Improve sleep quality: Reduce screen time before bed, keep your room cool and dark, "
+            "and maintain a consistent sleep schedule."
+        )
+    
+    # Workout recommendations
+    if scores.workout_days < 3:
+        recommendations.append(
+            f"Increase exercise frequency: You worked out {scores.workout_days} times. "
+            "Aim for at least 3-5 sessions per week to boost dopamine and reduce stress."
+        )
+    elif scores.avg_workout_duration < 30:
+        recommendations.append(
+            f"Extend workout duration: Average of {scores.avg_workout_duration} min is short. "
+            "Try to reach 30-45 minutes for optimal benefits."
+        )
+    
+    # Nutrition recommendations
+    if scores.avg_meals_per_day < 3:
+        recommendations.append(
+            f"Eat more regularly: Averaging {scores.avg_meals_per_day} meals/day. "
+            "Regular meals stabilize blood sugar and cortisol levels."
+        )
+    if scores.avg_water_intake < 6:
+        recommendations.append(
+            f"Increase hydration: Only {scores.avg_water_intake} glasses/day. "
+            "Aim for 8 glasses to support metabolism and cognitive function."
+        )
+    
+    # Cortisol-specific
+    if scores.cortisol_level > 60:
+        recommendations.append(
+            "High stress detected: Consider adding meditation, deep breathing, "
+            "or light walking to your routine. Prioritize recovery."
+        )
+    
+    # Positive reinforcement
+    if scores.dopamine_level >= 70:
+        recommendations.append(
+            "Great progress! Your wellness habits are strong. "
+            "Maintain consistency to keep dopamine levels high."
+        )
+    
+    return recommendations if recommendations else ["Keep up the great work! Your wellness metrics are balanced."]
+
+
+# ============================================================================
+# CORRELATION ANALYSIS
+# ============================================================================
+
+def correlate_sleep_and_bp(
+    sleep_logs: List[SleepLog],
+    bp_logs: List[BloodPressureLog]
+) -> dict:
+    """
+    Analyze correlation between sleep patterns and blood pressure.
+    
+    Returns correlation data and insights.
+    """
+    if not sleep_logs or not bp_logs:
+        return {"correlation": 0, "insight": "Insufficient data for correlation analysis"}
+    
+    # Group by date
+    sleep_by_date = {}
+    for log in sleep_logs:
+        date_key = log.sleep_end.date()
+        analysis = analyze_sleep_log(log)
+        sleep_by_date[date_key] = analysis.duration_hours
+    
+    bp_by_date = {}
+    for log in bp_logs:
+        date_key = log.recorded_at.date()
+        if date_key not in bp_by_date:
+            bp_by_date[date_key] = []
+        bp_by_date[date_key].append(log.systolic)
+    
+    # Find matching dates
+    matched_data = []
+    for date_key in sleep_by_date:
+        if date_key in bp_by_date:
+            sleep_hours = sleep_by_date[date_key]
+            avg_bp = mean(bp_by_date[date_key])
+            matched_data.append((sleep_hours, avg_bp))
+    
+    if len(matched_data) < 3:
+        return {"correlation": 0, "insight": "Need more matching data points"}
+    
+    # Simple correlation calculation
+    sleep_vals = [d[0] for d in matched_data]
+    bp_vals = [d[1] for d in matched_data]
+    
+    n = len(matched_data)
+    sum_x = sum(sleep_vals)
+    sum_y = sum(bp_vals)
+    sum_xy = sum(x * y for x, y in matched_data)
+    sum_x2 = sum(x ** 2 for x in sleep_vals)
+    sum_y2 = sum(y ** 2 for y in bp_vals)
+    
+    numerator = (n * sum_xy) - (sum_x * sum_y)
+    denominator = ((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2)) ** 0.5
+    
+    correlation = numerator / denominator if denominator != 0 else 0
+    
+    # Generate insight
+    if correlation < -0.3:
+        insight = "Negative correlation: Better sleep tends to lower blood pressure"
+    elif correlation > 0.3:
+        insight = "Unexpected positive correlation: Consider other factors affecting BP"
+    else:
+        insight = "Weak correlation: Sleep and BP show limited direct relationship"
+    
+    return {
+        "correlation": round(correlation, 3),
+        "insight": insight,
+        "data_points": len(matched_data),
+        "avg_sleep": round(mean(sleep_vals), 1),
+        "avg_bp": round(mean(bp_vals), 1)
+    }
